@@ -19,7 +19,7 @@ This is forked from codecivet, mostly due to some issues I encountered when usin
 * I found an error with the earlier script where the user's phone number (i.e. my phone number) was not getting added to the <addr> tag for MMS messages. This was causing some of my MMS messages to not appear in the correct conversation, so I added code to find the owner's phone number, pass that to the write_sms_messages and write_mms_messages functions, and append it to the participants list before creating the <addr> tag. The fun part is you can't append it to the participants list until after it creates the "addresses" element inside the \<mms\> tag because the owner's phone number is *not* supposed to go in that element.
 * Of course, fixing the above error created another error where it was not recognizing when MMS messages were sent by me and assiging the correct value to the "msg_box" element, so I updated the sent_by_me variable to check whether sender is equal to own_number. As far as I've been able to find, this has fixed the issue.
 * Tested on 5312 messages, 145 images, and 23 vCards. Everything imported or converted successfully as far as I can tell.
-* **The additional processing on image filenames and vCard filenames makes this script run significantly slower than other forks. It took on average a little over 16 minutes to process the data set above.**
+* Latest commit substantially reduces the processing time. Previous version took around 15-16 minutes; this version processes the above data set in about 12-14 seconds.
 
 ## Improvements from brismuth fork
 * Support for images (jpg and gif tested, should work with png)
