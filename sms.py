@@ -20,11 +20,19 @@ print("New file will be saved to " + sms_backup_filename)
 
 def main():
     start_time=datetime.now()
-    print("Start time: ", start_time.strftime("%H:%M:%S"))
     print("Checking directory for *.html files")
     num_sms = 0
+    num_img = 0
+    num_vcf = 0
     root_dir = "."
     own_number = None
+
+    # Create the src to filename mapping
+    src_elements = extract_src(".")  # Assuming current directory
+    att_filenames = list_att_filenames(".")    # Assuming current directory
+    num_img = sum(1 for filename in att_filenames if Path(filename).suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif'})
+    num_vcf = sum(1 for filename in att_filenames if Path(filename).suffix.lower() == '.vcf')
+    src_filename_map = src_to_filename_mapping(src_elements, att_filenames)
 
     for subdir, dirs, files in os.walk(root_dir):
         for file in files:
@@ -57,9 +65,9 @@ def main():
 
             if is_group_conversation:
                 participants_raw = soup.find_all(class_="participants")
-                write_mms_messages(file, participants_raw, messages_raw, own_number)
+                write_mms_messages(file, participants_raw, messages_raw, own_number, src_filename_map)
             else:
-                write_sms_messages(file, messages_raw, own_number)
+                write_sms_messages(file, messages_raw, own_number, src_filename_map)
 
     sms_backup_file = open(sms_backup_filename, "a")
     sms_backup_file.write("</smses>")
@@ -70,7 +78,18 @@ def main():
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
-    print(f"Processed {num_sms} messages in {hours} hours, {minutes} minutes, {seconds} seconds")    
+    parts = []
+    if hours > 0:
+        hour_str = "hour" if hours == 1 else "hours"
+        parts.append(f"{hours} {hour_str}")
+    if minutes > 0:
+        minute_str = "minute" if minutes == 1 else "minutes"
+        parts.append(f"{minutes} {minute_str}")
+    if seconds > 0 or (hours == 0 and minutes == 0):
+        second_str = "second" if seconds == 1 else "seconds"
+        parts.append(f"{seconds} {second_str}")
+    time_str = ", ".join(parts)
+    print(f"Processed {num_sms} messages, {num_img} images, and {num_vcf} contact cards in {time_str}")    
     write_header(sms_backup_filename, num_sms)
 
 # Fixes special characters in the vCards
@@ -82,31 +101,18 @@ def escape_xml(s):
             .replace('"', "&quot;"))
 
 # Function to extract img src from HTML files
-def extract_img_src(html_directory):
+def extract_src(html_directory):
     src_list = []
     for html_file in Path(html_directory).rglob('*.html'):  # Assuming HTML files have .html extension
         with open(html_file, 'r', encoding='utf-8') as file:
             soup = BeautifulSoup(file, 'html.parser')
             src_list.extend([img['src'] for img in soup.find_all('img') if 'src' in img.attrs])
-    return src_list
-
-def extract_vcard_src(html_directory):
-    src_list = []
-    for html_file in Path(html_directory).rglob('*.html'):  # Assuming HTML files have .html extension
-        with open(html_file, 'r', encoding='utf-8') as file:
-            soup = BeautifulSoup(file, 'html.parser')
             src_list.extend([a['href'] for a in soup.find_all('a', class_='vcard') if 'href' in a.attrs])
     return src_list
 
-# Function to list image filenames with specific extensions
-def list_image_filenames(image_directory):
-    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif'}
-    return [str(path.name) for path in Path(image_directory).rglob('*') 
-            if path.suffix.lower() in allowed_extensions]
-
-# Function to list image filenames with specific extensions
-def list_vcard_filenames(image_directory):
-    allowed_extensions = {'.vcf'}
+# Function to list attachment filenames with specific extensions
+def list_att_filenames(image_directory):
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.vcf'}
     return [str(path.name) for path in Path(image_directory).rglob('*') 
             if path.suffix.lower() in allowed_extensions]
 
@@ -130,13 +136,13 @@ def custom_filename_sort(filename):
         return (filename, float('inf'), '')
 
 # Function to produce a dictionary that maps img src elements (which are unique) to the respective filenames.
-def src_to_filename_mapping(img_src_elements, image_filenames):
+def src_to_filename_mapping(src_elements, att_filenames):
     used_filenames = set()
     mapping = {}
-    for src in img_src_elements:
-        image_filenames.sort(key=custom_filename_sort)  # Sort filenames before matching
+    for src in src_elements:
+        att_filenames.sort(key=custom_filename_sort)  # Sort filenames before matching
         assigned_filename = None
-        for filename in image_filenames:
+        for filename in att_filenames:
             normalized_filename = normalize_filename(filename)
             if normalized_filename in src and filename not in used_filenames:
                 assigned_filename = filename
@@ -145,7 +151,7 @@ def src_to_filename_mapping(img_src_elements, image_filenames):
         mapping[src] = assigned_filename or 'No unused match found'
     return mapping
 
-def write_sms_messages(file, messages_raw, own_number):
+def write_sms_messages(file, messages_raw, own_number, src_filename_map):
     fallback_number = 0
     title_has_number = re.search(r"(^\+[0-9]+)", Path(file).name)
     if title_has_number:
@@ -188,10 +194,10 @@ def write_sms_messages(file, messages_raw, own_number):
     for message in messages_raw:
         # Check if message has an image or vCard in it and treat as mms if so
         if message.find_all("img"):
-            write_mms_messages(file, [[participant_raw]], [message], own_number)
+            write_mms_messages(file, [[participant_raw]], [message], own_number, src_filename_map)
             continue
         if message.find_all("a", class_='vcard'):
-            write_mms_messages(file, [[participant_raw]], [message], own_number)
+            write_mms_messages(file, [[participant_raw]], [message], own_number, src_filename_map)
             continue
         message_content = get_message_text(message)
         if message_content == "MMS Sent" or message_content == "MMS Received":
@@ -210,7 +216,7 @@ def write_sms_messages(file, messages_raw, own_number):
 
     sms_backup_file.close()
 
-def write_mms_messages(file, participants_raw, messages_raw, own_number):
+def write_mms_messages(file, participants_raw, messages_raw, own_number, src_filename_map):
     sms_backup_file = open(sms_backup_filename, "a", encoding="utf8")
 
     participants = get_participant_phone_numbers(participants_raw)
@@ -218,14 +224,6 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number):
 
     # Adding own_number to participants if it exists and is not already in the list
     
-    # Create the src to filename mapping
-    img_src_elements = extract_img_src(".")  # Assuming current directory
-    vcf_src_elements = extract_vcard_src(".")
-    image_filenames = list_image_filenames(".")    # Assuming current directory
-    vcard_filenames = list_vcard_filenames(".")
-    img_src_filename_map = src_to_filename_mapping(img_src_elements, image_filenames)
-    vcf_src_filename_map = src_to_filename_mapping(vcf_src_elements, vcard_filenames)
-
     for message in messages_raw:
         # Sometimes the sender tel field is blank. Try to guess the sender from the participants.
         sender = get_mms_sender(message, participants)
@@ -246,10 +244,10 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number):
                 supported_types = ["jpg", "png", "gif"]
                 image_src = image["src"]
                 # Change to use the src_filename_map to find the image filename that corresponds to the image_src value, which is unique to each image MMS message.
-                image_filename = img_src_filename_map.get(image_src, "default_image_filename")  # Use a default filename if not found
+                image_filename = src_filename_map.get(image_src, "default_image_filename")  # Use a default filename if not found
                 original_image_filename = image_filename
                 # Each image found should only match a single file
-                image_path = list(Path.cwd().glob(f"**/*{image_filename}"))
+                image_path = [p for p in Path.cwd().glob(f"**/*{image_filename}") if p.is_file()]
 
                 if len(image_path) == 0:
                     image_filename_with_ext = f"{original_image_filename}.*"
@@ -331,7 +329,7 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number):
                 supported_types = ["vcf"]
                 vcards_src = vcard.get("href")
                 # Change to use the src_filename_map to find the vcards filename that corresponds to the vcards_src value, which is unique to each vcards MMS message.
-                vcards_filename = vcf_src_filename_map.get(vcards_src, "default_vcards_filename")  # Use a default filename if not found
+                vcards_filename = src_filename_map.get(vcards_src, "default_vcards_filename")  # Use a default filename if not found
                 original_vcards_filename = vcards_filename
                 # Each vcards found should only match a single file
                 vcards_path = list(Path.cwd().glob(f"**/*{vcards_filename}"))
@@ -511,7 +509,6 @@ def get_mms_sender(message, participants):
         number = participants[0]
     return number
 
-
 def get_first_phone_number(messages, fallback_number):
     # handle group messages
     for author_raw in messages:
@@ -546,7 +543,6 @@ def get_first_phone_number(messages, fallback_number):
     )
     return fallback_number, sender_data
 
-
 def get_participant_phone_numbers(participants_raw):
     participants = []
 
@@ -568,10 +564,8 @@ def get_participant_phone_numbers(participants_raw):
 
     return participants
 
-
 def format_number(phone_number):
     return phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.E164)
-
 
 def get_time_unix(message):
     time_raw = message.find(class_="dt")
@@ -580,7 +574,6 @@ def get_time_unix(message):
     # Changed this line to get the full date value including milliseconds.
     mstime = time.mktime(time_obj.timetuple()) * 1000 + time_obj.microsecond // 1000
     return int(mstime)
-
 
 def write_header(filename, numsms):
     # Prepend header in memory efficient manner since the output file can be huge
