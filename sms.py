@@ -20,6 +20,7 @@ print("New file will be saved to " + sms_backup_filename)
 
 def main():
     start_time=datetime.now()
+    print("Start time: ", start_time.strftime("%H:%M:%S"))
     print("Checking directory for *.html files")
     num_sms = 0
     num_img = 0
@@ -80,14 +81,11 @@ def main():
     seconds = total_seconds % 60
     parts = []
     if hours > 0:
-        hour_str = "hour" if hours == 1 else "hours"
-        parts.append(f"{hours} {hour_str}")
+        parts.append(f"{hours} hours")
     if minutes > 0:
-        minute_str = "minute" if minutes == 1 else "minutes"
-        parts.append(f"{minutes} {minute_str}")
+        parts.append(f"{minutes} minutes")
     if seconds > 0 or (hours == 0 and minutes == 0):
-        second_str = "second" if seconds == 1 else "seconds"
-        parts.append(f"{seconds} {second_str}")
+        parts.append(f"{seconds} seconds")
     time_str = ", ".join(parts)
     print(f"Processed {num_sms} messages, {num_img} images, and {num_vcf} contact cards in {time_str}")    
     write_header(sms_backup_filename, num_sms)
@@ -235,7 +233,7 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
         images = message.find_all("img")
         image_parts = ""
         vcards = message.find_all("a", class_='vcard')
-        vcards_parts = ""
+        vcard_parts = ""
         extracted_url = ""
         if images:
             text_only=0
@@ -244,57 +242,17 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
                 supported_types = ["jpg", "png", "gif"]
                 image_src = image["src"]
                 # Change to use the src_filename_map to find the image filename that corresponds to the image_src value, which is unique to each image MMS message.
-                image_filename = src_filename_map.get(image_src, "default_image_filename")  # Use a default filename if not found
-                original_image_filename = image_filename
-                # Each image found should only match a single file
-                image_path = [p for p in Path.cwd().glob(f"**/*{image_filename}") if p.is_file()]
-
-                if len(image_path) == 0:
-                    image_filename_with_ext = f"{original_image_filename}.*"
+                # Attempt to find a direct match for the image_src in the src_filename_map
+                image_filename = src_filename_map.get(image_src)
+                # If a direct match isn't found, prepend the start of the HTML file name to find the image name
+                if image_filename is None or image_filename == "No unused match found":  # Adjust based on your actual "not found" condition
+                    html_filename_prefix = file.split('-', 1)[0]
+                    image_filename = html_filename_prefix + image_src[image_src.find('-'):]
+                    image_filename_with_ext = f"{image_filename}.*"
                     image_path = list(Path.cwd().glob(f"**/{image_filename_with_ext}"))
                     image_path = [p for p in image_path if p.suffix[1:] in supported_types]
-
-                if len(image_path) == 0:
-                    # Sometimes they just forget the extension
-                    for supported_type in supported_types:
-                        image_path = list(
-                            Path.cwd().glob(f"**/*{image_filename}.{supported_type}")
-                        )
-                        if len(image_path) == 1:
-                            break
-
-                if len(image_path) == 0:
-                    # Sometimes the first word doesn't match (eg it is a phone number instead of a
-                    # contact name) so try again without the first word
-                    image_filename = "-".join(original_image_filename.split("-")[1:])
-                    image_path = list(Path.cwd().glob(f"**/*{image_filename}*"))
-
-                if len(image_path) == 0:
-                    # Sometimes the image filename matches the message filename instead of the
-                    # filename in the HTML. And sometimes the message filenames are repeated, eg
-                    # filefoo(0).html, filefoo(1).html, etc., but the image filename matches just
-                    # the base ("filefoo" in this example).
-                    image_filenames = [Path(file).stem, Path(file).stem.split("(")[0]]
-                    for image_filename in image_filenames:
-                        # Have to guess at the file extension in this case
-                        for supported_type in supported_types:
-                            image_path = list(
-                                Path.cwd().glob(
-                                    f"**/*{image_filename}*.{supported_type}"
-                                )
-                            )
-                            # Sometimes there's extra cruft in the filename in the HTML. So try to
-                            # match a subset of it.
-                            if len(image_path) > 1:
-                                for ip in image_path:
-                                    if ip.stem in original_image_filename:
-                                        image_path = [ip]
-                                        break
-
-                            if len(image_path) == 1:
-                                break
-                        if len(image_path) == 1:
-                            break
+                else:
+                    image_path = [p for p in Path.cwd().glob(f"**/*{image_filename}") if p.is_file()]                
 
                 assert (
                     len(image_path) != 0
@@ -327,73 +285,32 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
             for vcard in vcards:
                 # I have only encountered jpg and gif, but I have read that GV can ecxport png
                 supported_types = ["vcf"]
-                vcards_src = vcard.get("href")
+                vcard_src = vcard.get("href")
                 # Change to use the src_filename_map to find the vcards filename that corresponds to the vcards_src value, which is unique to each vcards MMS message.
-                vcards_filename = src_filename_map.get(vcards_src, "default_vcards_filename")  # Use a default filename if not found
-                original_vcards_filename = vcards_filename
-                # Each vcards found should only match a single file
-                vcards_path = list(Path.cwd().glob(f"**/*{vcards_filename}"))
-                
-                if len(vcards_path) == 0:
-                    vcards_filename_with_ext = f"{original_vcards_filename}.*"
-                    vcards_path = list(Path.cwd().glob(f"**/{vcards_filename_with_ext}"))
-                    vcards_path = [p for p in vcards_path if p.suffix[1:] in supported_types]
-
-                if len(vcards_path) == 0:
-                    # Sometimes they just forget the extension
-                    for supported_type in supported_types:
-                        vcards_path = list(
-                            Path.cwd().glob(f"**/*{vcards_filename}.{supported_type}")
-                        )
-                        if len(vcards_path) == 1:
-                            break
-
-                if len(vcards_path) == 0:
-                    # Sometimes the first word doesn't match (eg it is a phone number instead of a
-                    # contact name) so try again without the first word
-                    vcards_filename = "-".join(original_vcards_filename.split("-")[1:])
-                    vcards_path = list(Path.cwd().glob(f"**/*{vcards_filename}*"))
-
-                if len(vcards_path) == 0:
-                    # Sometimes the vcards filename matches the message filename instead of the
-                    # filename in the HTML. And sometimes the message filenames are repeated, eg
-                    # filefoo(0).html, filefoo(1).html, etc., but the vcards filename matches just
-                    # the base ("filefoo" in this example).
-                    vcards_filenames = [Path(file).stem, Path(file).stem.split("(")[0]]
-                    for vcards_filename in vcards_filenames:
-                        # Have to guess at the file extension in this case
-                        for supported_type in supported_types:
-                            vcards_path = list(
-                                Path.cwd().glob(
-                                    f"**/*{vcards_filename}*.{supported_type}"
-                                )
-                            )
-                            # Sometimes there's extra cruft in the filename in the HTML. So try to
-                            # match a subset of it.
-                            if len(vcards_path) > 1:
-                                for ip in vcards_path:
-                                    if ip.stem in original_vcards_filename:
-                                        vcards_path = [ip]
-                                        break
-
-                            if len(vcards_path) == 1:
-                                break
-                        if len(vcards_path) == 1:
-                            break
+                vcard_filename = src_filename_map.get(vcard_src)
+                # If a direct match isn't found, prepend the start of the HTML file name to find the image name
+                if vcard_filename is None or vcard_filename == "No unused match found":  # Adjust based on your actual "not found" condition
+                    html_filename_prefix = file.split('-', 1)[0]
+                    vcard_filename = html_filename_prefix + vcard_src[vcard_src.find('-'):]
+                    vcard_filename_with_ext = f"{image_filename}.*"
+                    vcard_path = list(Path.cwd().glob(f"**/{vcard_filename_with_ext}"))
+                    vcard_path = [p for p in image_path if p.suffix[1:] in supported_types]
+                else:
+                    vcard_path = [p for p in Path.cwd().glob(f"**/*{vcard_filename}") if p.is_file()]                
 
                 assert (
-                    len(vcards_path) != 0
-                ), f"No matching vcards found. File name: {original_vcards_filename}"
+                    len(vcard_path) != 0
+                ), f"No matching vCards found. File name: {vcard_filename}"
                 assert (
-                    len(vcards_path) == 1
-                ), f"Multiple potential matching vcards found. vcards: {[x for x in vcards_path]!r}"
+                    len(vcard_path) == 1
+                ), f"Multiple potential matching vCards found. vCards: {[x for x in vcard_path]!r}"
 
-                vcards_path = vcards_path[0]
-                vcards_type = vcards_path.suffix[1:]
+                vcard_path = vcard_path[0]
+                vcard_type = vcard_path.suffix[1:]
                 
                 # This section searches for any contact cards that are just location pins, and turns them into a plain text MMS message with the URL for the pin.
                 # If you don't want to perform this conversion, then comment out this section.
-                with vcards_path.open("r", encoding="utf-8") as fb:
+                with vcard_path.open("r", encoding="utf-8") as fb:
                     current_location_found = False
                     for line in fb:
                         if line.startswith("FN:") and "Current Location" in line:
@@ -405,30 +322,30 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
                             break
 
                     if not current_location_found:
-                        with vcards_path.open("rb") as fb:
-                            vcards_bytes = fb.read()
-                            byte_string = f"{b64encode(vcards_bytes)}"
+                        with vcard_path.open("rb") as fb:
+                            vcard_bytes = fb.read()
+                            byte_string = f"{b64encode(vcard_bytes)}"
 
                             # Use the full path and then derive the relative path, ensuring the complete filename is used
-                            relative_vcards_path = vcards_path.relative_to(Path.cwd())
+                            relative_vcard_path = vcard_path.relative_to(Path.cwd())
     
-                            vcards_parts += (
-                            f'    <part seq="0" ct="text/x-vCard" name="{relative_vcards_path}" '
-                            f'chset="null" cd="null" fn="null" cid="&lt;{relative_vcards_path}&gt;" '
-                            f'cl="{relative_vcards_path}" ctt_s="null" ctt_t="null" text="null" '
+                            vcard_parts += (
+                            f'    <part seq="0" ct="text/x-vCard" name="{relative_vcard_path}" '
+                            f'chset="null" cd="null" fn="null" cid="&lt;{relative_vcard_path}&gt;" '
+                            f'cl="{relative_vcard_path}" ctt_s="null" ctt_t="null" text="null" '
                             f'data="{byte_string[2:-1]}" />\n'
                         )
 
                 # If you don't want to convert vcards with locations to plain text MMS, uncomment this section.
-                #with vcards_path.open("rb") as fb:
-                    #vcards_bytes = fb.read()
-                    #byte_string = f"{b64encode(vcards_bytes)}"
+                #with vcard_path.open("rb") as fb:
+                    #vcard_bytes = fb.read()
+                    #byte_string = f"{b64encode(vcard_bytes)}"
                     # Use the full path and then derive the relative path, ensuring the complete filename is used
-                    #relative_vcards_path = vcards_path.relative_to(Path.cwd())
-                    #vcards_parts += (
-                    #f'    <part seq="0" ct="text/x-vCard" name="{relative_vcards_path}" '
-                    #f'chset="null" cd="null" fn="null" cid="&lt;{relative_vcards_path}&gt;" '
-                    #f'cl="{relative_vcards_path}" ctt_s="null" ctt_t="null" text="null" '
+                    #relative_vcard_path = vcard_path.relative_to(Path.cwd())
+                    #vcard_parts += (
+                    #f'    <part seq="0" ct="text/x-vCard" name="{relative_vcard_path}" '
+                    #f'chset="null" cd="null" fn="null" cid="&lt;{relative_vcard_path}&gt;" '
+                    #f'cl="{relative_vcard_path}" ctt_s="null" ctt_t="null" text="null" '
                     #f'data="{byte_string[2:-1]}" />\n'
                 #)
         else:
@@ -467,7 +384,7 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
                 mms_text += f'    <part ct="text/plain" seq="0" text="{message_text}"/> \n'
 
             mms_text += image_parts
-            mms_text += vcards_parts
+            mms_text += vcard_parts
 
             mms_text += (
                 "  </parts> \n"
@@ -509,6 +426,7 @@ def get_mms_sender(message, participants):
         number = participants[0]
     return number
 
+
 def get_first_phone_number(messages, fallback_number):
     # handle group messages
     for author_raw in messages:
@@ -543,6 +461,7 @@ def get_first_phone_number(messages, fallback_number):
     )
     return fallback_number, sender_data
 
+
 def get_participant_phone_numbers(participants_raw):
     participants = []
 
@@ -564,8 +483,10 @@ def get_participant_phone_numbers(participants_raw):
 
     return participants
 
+
 def format_number(phone_number):
     return phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.E164)
+
 
 def get_time_unix(message):
     time_raw = message.find(class_="dt")
@@ -574,6 +495,7 @@ def get_time_unix(message):
     # Changed this line to get the full date value including milliseconds.
     mstime = time.mktime(time_obj.timetuple()) * 1000 + time_obj.microsecond // 1000
     return int(mstime)
+
 
 def write_header(filename, numsms):
     # Prepend header in memory efficient manner since the output file can be huge
