@@ -2,9 +2,14 @@
 Convert Google Voice SMS data from Takeout to .xml suitable for use with SMS Backup and Restore.
 Input data is a folder of .html, image, and vCard files from Google Takeout.
 
-Working as of Jan 30, 2024.
+Working as of September 21, 2024.
 
-This is forked from codecivet, mostly due to some issues I encountered when using his script. I am by no means a professional coder of anything, and I used a decent amount of help from ChatGPT to get this thing working, so YMMV. 
+This is forked from SLAB-8002, mostly to optionally auto-remove conversations that weren't convertable and were mostly spam, automated messages, etc. 
+
+## Improvements from SLAB-8002
+* Offers to auto-delete conversations that will cause issues and are generally not wanted, e.g. converations without attached phone numbers.
+
+After removing those files my conversion of 145,201 messages, 5061 images, and 14 contact cards succeeded in 6 minutes, 30 seconds.
 
 ## Improvements from codecivet fork
 * Removes the "MMS Sent" and "MMS Received" messages mentioned by codecivet.
