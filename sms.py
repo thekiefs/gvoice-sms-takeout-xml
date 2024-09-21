@@ -1,4 +1,5 @@
 import dateutil.parser
+import glob
 import os
 import phonenumbers
 import re
@@ -21,6 +22,7 @@ print("New file will be saved to " + sms_backup_filename)
 def main():
     start_time=datetime.now()
     print("Start time: ", start_time.strftime("%H:%M:%S"))
+    remove_problematic_files()
     print("Checking directory for *.html files")
     num_sms = 0
     num_img = 0
@@ -89,6 +91,39 @@ def main():
     time_str = ", ".join(parts)
     print(f"Processed {num_sms} messages, {num_img} images, and {num_vcf} contact cards in {time_str}")    
     write_header(sms_backup_filename, num_sms)
+
+def remove_problematic_files():
+    #Get user confimration before deleteing files
+    user_confirmation = input("""\
+    Would you like to automatically remove converstaions that won't convert?
+    This is converations without attached phone numbers or ones with shortcode phone numbers.
+    If so, this will automatically delete those files.
+    (Y/n)? """)
+    if user_confirmation == '' or user_confirmation == 'y' or user_confirmation == 'Y':
+        # Find files starting with " -" instead of a phone number
+        files_to_remove = glob.glob("Calls/ -*")
+        # Remove each file
+        for file in files_to_remove:
+            try:
+                os.remove(file)
+                print(f"Removed no number conversation -- {file}")
+            except OSError as e:
+                print(f"Error removing no number conversation -- {file}: {e}")
+        # Find files from a shortcode phonenumber or similar that don't import properly
+        pattern = r'^[0-9]{1,8}.*$'
+        subdirectory = './Calls'
+        files = [os.path.join(f) for f in os.listdir(subdirectory) if os.path.isfile(os.path.join(subdirectory, f))]
+        for file in files:
+            if re.match(pattern, file):
+                try:
+                    file = os.path.join(subdirectory, file)
+                    os.remove(file)
+                    print(f"Removed shortcode conversation -- {file}")
+                except OSError as e:
+                    print(f"Error removing shortcode conversation -- {file}: {e}")
+        return None
+    else:
+        return None
 
 # Fixes special characters in the vCards
 def escape_xml(s):
