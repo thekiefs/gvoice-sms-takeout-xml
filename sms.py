@@ -95,9 +95,11 @@ def main():
 def remove_problematic_files():
     #Get user confimration before deleteing files
     user_confirmation = input("""\
-    Would you like to automatically remove converstaions that won't convert?
-    This is converations without attached phone numbers or ones with shortcode phone numbers.
-    If so, this will automatically delete those files.
+
+    Would you like to automatically remove conversations that won't convert?
+    This is conversations without attached phone numbers, ones with shortcode phone numbers,
+    or things like missed calls and voicemails.
+    If you say yes, this will automatically delete those files before converting.
     (Y/n)? """)
     if user_confirmation == '' or user_confirmation == 'y' or user_confirmation == 'Y':
         # Find files starting with " -" instead of a phone number
