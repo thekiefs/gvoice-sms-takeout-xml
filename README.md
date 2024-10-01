@@ -4,7 +4,7 @@ Input data is a folder of .html, image, and vCard files from Google Takeout.
 
 Working as of September 21, 2024.
 
-This is forked from SLAB-8002, mostly to optionally auto-remove conversations that weren't convertable and were mostly spam, automated messages, etc. 
+This is forked from [SLAB-8002(https://github.com/SLAB-8002), mostly to optionally auto-remove conversations that weren't convertable and were mostly spam, automated messages, etc. 
 
 ## Improvements from SLAB-8002
 * Offers to auto-delete conversations that will cause issues and are generally not wanted, e.g. converations without attached phone numbers.
