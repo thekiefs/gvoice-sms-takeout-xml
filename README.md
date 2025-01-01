@@ -2,9 +2,11 @@
 Convert Google Voice SMS data from Takeout to .xml suitable for use with SMS Backup and Restore.
 Input data is a folder of .html, image, and vCard files from Google Takeout.
 
-Working as of September 21, 2024.
+Working as of 1 January, 2025.
 
-This is forked from [SLAB-8002](https://github.com/SLAB-8002), mostly to optionally auto-remove conversations that weren't convertable and were mostly spam, automated messages, etc. 
+## Additional improvements on 1 Jan 2025
+* Added support for MP4 videos, HEIC, and WEBP images. I tried testing support for other file types (MP3 audio, MOV, and AVI videos) but so far it looks like Google Voice doesn't support many of them. If someone finds a format that is supported by Takeout but isn't covered in this script it should be fairly easy to add.
+* If you want to test your output before restoring it to the message database on your primary phone, I strongly recommend using either Synctech's [View Backup Files](https://www.synctech.com.au/sms-backup-restore/view-backup/) tool or following the steps at the bottom to use an Android emulator. If you try to import your backups to another physical device, it will cause issues where your group conversations will get erroneously split. I am trying to investigate this wih Synctech, but at the moment I would stay away from testing on a separate physical device.
 
 ## Improvements from SLAB-8002
 * Offers to auto-delete conversations that will cause issues and are generally not wanted, e.g. converations without attached phone numbers.
@@ -39,7 +41,6 @@ After removing those files my conversion of 145,201 messages, 5061 images, and 1
 * For dual or multi-SIM users, SMS Backup & Restore does not support setting SIM identity through the "sub_id" value on Android 14. I asked Synctech about this, and they said it is an Android 14 issue that they have not been able to figure out how to work around. Just know that all of your texts will show up as being associated with your primary SIM.
 * When testing this, I had some issues with SMS Backup & Restore finding duplicates. I think this most likely occurred because I was manually editing some of the GVoice HTML outputs to create particular corner cases that didn't occur in my actual data set. When I asked, Synctech informed me they were checking for duplicates using the "date" element, followed by "m_id" (message ID), then "tr_id" (transaction ID). Most likely I inadvertantly created a message that had the same "date" value as another. It only occurred once in my actual data set, and it was an empty plain text MMS, so I didn't try to correct this issue.
   * If you encounter this issue and are losing data that you don't want to, the recommended fix is to create a "tr_id" element for MMS messages and assign a UUID to it. This would probably be pretty easy to implement and would give you a unique "tr_id" for every MMS message.
-* Videos are **still** not supported. To be honest, you can probably take the image or vcard processing that is currently in the script and use it for videos. I didn't have any videos in my data from GVoice, so I didn't really have a good way to test, and I just wasn't that motivated after I got this working well enough for my purposes.
 
 ## How to use:
 1. (Optional) Export all Google Contacts
@@ -58,7 +59,7 @@ After removing those files my conversion of 145,201 messages, 5061 images, and 1
 
 
 ## Testing with an emulator:
-**I STRONGLY recommend using an emulator to test the output before importing to your phone**
+**I STRONGLY recommend using an emulator (NOT a spare physical device) to test the output before importing to your phone**
 1. Open your emulator application of choice (I used Android Studio AVD).
 1. Install SMS Backup & Restore.
   * I did this by downloading the APK from [SyncTech](https://www.synctech.com.au/sms-backup-restore/) then installing using ADB: i.e. ` adb install .\SMSBackupRestore-freeProductionRelease-10.20.002.apk`.

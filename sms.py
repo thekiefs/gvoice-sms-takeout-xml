@@ -27,6 +27,7 @@ def main():
     num_sms = 0
     num_img = 0
     num_vcf = 0
+    num_vid = 0
     root_dir = "."
     own_number = None
 
@@ -35,6 +36,7 @@ def main():
     att_filenames = list_att_filenames(".")    # Assuming current directory
     num_img = sum(1 for filename in att_filenames if Path(filename).suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif'})
     num_vcf = sum(1 for filename in att_filenames if Path(filename).suffix.lower() == '.vcf')
+    num_vid = sum(1 for filename in att_filenames if Path(filename).suffix.lower() == '.mp4')
     src_filename_map = src_to_filename_mapping(src_elements, att_filenames)
 
     for subdir, dirs, files in os.walk(root_dir):
@@ -89,7 +91,7 @@ def main():
     if seconds > 0 or (hours == 0 and minutes == 0):
         parts.append(f"{seconds} seconds")
     time_str = ", ".join(parts)
-    print(f"Processed {num_sms} messages, {num_img} images, and {num_vcf} contact cards in {time_str}")    
+    print(f"Processed {num_sms} messages, {num_img} images, {num_vid} videos, and {num_vcf} contact cards in {time_str}")
     write_header(sms_backup_filename, num_sms)
 
 def remove_problematic_files():
@@ -142,19 +144,20 @@ def extract_src(html_directory):
         with open(html_file, 'r', encoding='utf-8') as file:
             soup = BeautifulSoup(file, 'html.parser')
             src_list.extend([img['src'] for img in soup.find_all('img') if 'src' in img.attrs])
+            src_list.extend([a['href'] for a in soup.find_all('a', class_='video') if 'href' in a.attrs])
             src_list.extend([a['href'] for a in soup.find_all('a', class_='vcard') if 'href' in a.attrs])
     return src_list
 
 # Function to list attachment filenames with specific extensions
 def list_att_filenames(image_directory):
-    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.vcf'}
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.vcf', '.mp4'}
     return [str(path.name) for path in Path(image_directory).rglob('*') 
             if path.suffix.lower() in allowed_extensions]
 
 # Function to remove file extension and parenthesized numbers from the end of image filenames. This is used to match those filenames back to their respective img_src key.
 def normalize_filename(filename):
     # Remove the file extension and any parenthesized numbers, then truncate at 50 characters
-    return re.sub(r'(?:\((\d+)\))?\.(jpg|gif|png|vcf)$', '', filename)[:50]
+    return re.sub(r'(?:\((\d+)\))?\.(jpg|gif|png|vcf|mp4)$', '', filename)[:50]
 
 # Function to sort filenames so that files with parenthesized numbers appended to the end follow the base filename.
 def custom_filename_sort(filename):
@@ -234,6 +237,9 @@ def write_sms_messages(file, messages_raw, own_number, src_filename_map):
         if message.find_all("a", class_='vcard'):
             write_mms_messages(file, [[participant_raw]], [message], own_number, src_filename_map)
             continue
+        if message.find_all("a", class_='video'):
+            write_mms_messages(file, [[participant_raw]], [message], own_number, src_filename_map)
+            continue
         message_content = get_message_text(message)
         if message_content == "MMS Sent" or message_content == "MMS Received":
             continue
@@ -269,6 +275,8 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
         # Handle images and vcards
         images = message.find_all("img")
         image_parts = ""
+        videos = message.find_all("a", class_='video')
+        video_parts = ""
         vcards = message.find_all("a", class_='vcard')
         vcard_parts = ""
         extracted_url = ""
@@ -276,7 +284,7 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
             text_only=0
             for image in images:
                 # I have only encountered jpg and gif, but I have read that GV can ecxport png
-                supported_types = ["jpg", "png", "gif"]
+                supported_types = ["jpg", "png", "gif", "webp", "heic"]
                 image_src = image["src"]
                 # Change to use the src_filename_map to find the image filename that corresponds to the image_src value, which is unique to each image MMS message.
                 # Attempt to find a direct match for the image_src in the src_filename_map
@@ -300,7 +308,7 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
 
                 image_path = image_path[0]
                 image_type = image_path.suffix[1:]
-                image_type = "jpeg" if image_type == "jpg" else image_type
+                image_type = "jpeg" if image_type in ["jpg", "webp"] else image_type
 
                 with image_path.open("rb") as fb:
                     image_bytes = fb.read()
@@ -315,6 +323,50 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
                     f'cl="{relative_image_path}" ctt_s="null" ctt_t="null" text="null" '
                     f'data="{byte_string[2:-1]}" />\n'
                 )
+        if videos:
+            text_only = 0
+            for video in videos:
+                # I have only encountered jpg and gif, but I have read that GV can ecxport png
+                supported_types = ["mp4"]
+                video_src = video.get("href")
+                # Change to use the src_filename_map to find the image filename that corresponds to the image_src value, which is unique to each image MMS message.
+                # Attempt to find a direct match for the image_src in the src_filename_map
+                video_filename = src_filename_map.get(video_src)
+                # If a direct match isn't found, prepend the start of the HTML file name to find the image name
+                if video_filename is None or video_filename == "No unused match found":  # Adjust based on your actual "not found" condition
+                    html_filename_prefix = file.split('-', 1)[0]
+                    video_filename = html_filename_prefix + video_src[image_src.find('-'):]
+                    video_filename_with_ext = f"{video_filename}.*"
+                    video_path = list(Path.cwd().glob(f"**/{video_filename_with_ext}"))
+                    video_path = [p for p in video_path if p.suffix[1:] in supported_types]
+                else:
+                    video_path = [p for p in Path.cwd().glob(f"**/*{video_filename}") if p.is_file()]
+
+                assert (
+                        len(video_path) != 0
+                ), f"No matching videos found. File name: {original_video_filename}"
+                assert (
+                        len(video_path) == 1
+                ), f"Multiple potential matching videos found. Images: {[x for x in video_path]!r}"
+
+                video_path = video_path[0]
+                print(f'Video path: {video_path}')
+                video_type = video_path.suffix[1:]
+
+                with video_path.open("rb") as fb:
+                    video_bytes = fb.read()
+                byte_string = f"{b64encode(video_bytes)}"
+
+                # Use the full path and then derive the relative path, ensuring the complete filename is used
+                relative_video_path = video_path.relative_to(Path.cwd())
+
+                video_parts += (
+                    f'    <part seq="0" ct="video/{video_type}" name="{relative_video_path}" '
+                    f'chset="null" cd="null" fn="null" cid="&lt;{relative_video_path}&gt;" '
+                    f'cl="{relative_video_path}" ctt_s="null" ctt_t="null" text="null" '
+                    f'data="{byte_string[2:-1]}" />\n'
+                )
+
         # Handle vcards
         if vcards:
             #continue
@@ -421,6 +473,7 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
                 mms_text += f'    <part ct="text/plain" seq="0" text="{message_text}"/> \n'
 
             mms_text += image_parts
+            mms_text += video_parts
             mms_text += vcard_parts
 
             mms_text += (
