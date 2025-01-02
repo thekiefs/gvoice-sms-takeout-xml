@@ -22,7 +22,7 @@ print("New file will be saved to " + sms_backup_filename)
 
 # Constant for allowed extensions
 VIDEO_EXTENSIONS = {'.3gp', '.mp4'}
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif'}
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'}
 VCARD_EXTENSION = {'.vcf'}
 ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | VCARD_EXTENSION | VIDEO_EXTENSIONS
 
@@ -307,12 +307,11 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
         if images:
             text_only = 0
             for image in images:
-                # I have only encountered jpg and gif, but I have read that GV can ecxport png
-                supported_types = ["jpg", "jpeg", "png", "gif", "webp", "heic"]
+                supported_types = IMAGE_EXTENSIONS
                 image_src = image["src"]
                 image_path = find_file_path(image_src, src_filename_map, file, supported_types)
                 image_type = image_path.suffix[1:]
-                image_type = "jpeg" if image_type in ["jpg", "webp"] else image_type
+                image_type = "jpeg" if image_type == "jpg" else image_type
 
                 with image_path.open("rb") as fb:
                     image_bytes = fb.read()
