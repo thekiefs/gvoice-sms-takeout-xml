@@ -154,7 +154,6 @@ def extract_src(html_directory):
             src_list.extend([img['src'] for img in soup.find_all('img') if 'src' in img.attrs])
             src_list.extend([a['href'] for a in soup.find_all('a', class_='video') if 'href' in a.attrs])
             src_list.extend([a['href'] for a in soup.find_all('a', class_='vcard') if 'href' in a.attrs])
-            src_list.extend([a['href'] for a in soup.find_all('a', class_='video') if 'href' in a.attrs])
     return src_list
 
 # Function to list attachment filenames with specific extensions
@@ -301,8 +300,6 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
         video_parts = ""
         vcards = message.find_all("a", class_='vcard')
         vcard_parts = ""
-        videos = message.find_all("a", class_='video')
-        video_parts = ""
         extracted_url = ""
         if images:
             text_only = 0
@@ -417,7 +414,6 @@ def write_mms_messages(file, participants_raw, messages_raw, own_number, src_fil
             mms_text += image_parts
             mms_text += video_parts
             mms_text += vcard_parts
-            mms_text += video_parts
 
             mms_text += (
                 "  </parts> \n"
@@ -541,5 +537,4 @@ def write_header(filename, numsms):
     # Overwrite output file with temp file
     move(backup_temp.name, filename)
 
-main()
 main()
