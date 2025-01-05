@@ -94,11 +94,7 @@ def main():
 
             call_raw = soup.find(class_="haudio")
             if call_raw:
-                write_call(call_raw, call_log_filename)
-                num_calls += 1
-            
-
-
+                num_calls += write_call(call_raw, call_log_filename)
 
     sms_backup_file = open(sms_backup_filename, "a")
     sms_backup_file.write("</smses>")
@@ -527,14 +523,15 @@ def write_call(call_raw, call_log_filename):
     duration = round(isodate.parse_duration(duration_raw).total_seconds())
     call_type = get_call_type(call_raw)
     if call_type is None:
-        return
+        return 0
     if not number:
-        return
+        return 0
     with open(call_log_filename, "a", encoding="utf8") as call_log_file:
         call_text = (
             f'<call number="{number}" date="{date}" duration="{duration}" type="{call_type}" presentation="1" /> \n'
         )
         call_log_file.write(call_text)
+    return 1
 
 def get_message_type(message):  # author_raw = messages_raw[i].cite
     author_raw = message.cite
