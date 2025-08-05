@@ -15,6 +15,8 @@ import dateutil.parser
 import phonenumbers
 from bs4 import BeautifulSoup
 
+print("Current working directory:", os.getcwd())
+
 sms_backup_filename = "./gvoice-all.xml"
 sms_backup_path = Path(sms_backup_filename)
 # Clear file if it already exists
@@ -26,7 +28,6 @@ call_log_path = Path(call_log_filename)
 # Clear file if it already exists
 call_log_path.open("w").close()
 print("New call log file will be saved to " + call_log_filename)
-
 
 CALL_TAG_TO_TYPE = {
     'Received': 1,
@@ -127,16 +128,23 @@ def main():
     write_sms_header(sms_backup_filename, num_sms)
     write_calls_header(call_log_filename, num_calls)
 
+# Function to find the calls folder
+def find_calls_folder(start_dir='.'):
+    for root, dirs, files in os.walk(start_dir):
+        if 'Calls' in dirs:
+            return os.path.join(root, 'Calls')
+    return None
+
+# Function to remove conversations that won't convert
 def remove_problematic_files():
-    #Get user confimration before deleteing files
-    user_confirmation = input("""\
+    #Get user confirmation before deleting files
+    user_delete_confirmation = input("""\
 
     Would you like to automatically remove conversations that won't convert?
-    This is conversations without attached phone numbers, ones with shortcode phone numbers,
-    or things like missed calls and voicemails.
+    This is conversations without attached phone numbers, ones with shortcode phone numbers, or things like missed calls and voicemails.
     If you say yes, this will automatically delete those files before converting.
-    (Y/n)? """)
-    if user_confirmation == '' or user_confirmation == 'y' or user_confirmation == 'Y':
+    (Y/N)? """)
+    if user_delete_confirmation == '' or user_delete_confirmation == 'Y' or user_delete_confirmation == 'y':
         # Find files starting with " -" instead of a phone number
         files_to_remove = glob.glob("Calls/ -*")
         # Remove each file
@@ -146,10 +154,13 @@ def remove_problematic_files():
                 print(f"Removed no number conversation -- {file}")
             except OSError as e:
                 print(f"Error removing no number conversation -- {file}: {e}")
-        # Find files from a shortcode phonenumber or similar that don't import properly
+        # Find files from a shortcode phone number or similar that don't import properly
         pattern = r'^[0-9]{1,8}.*$'
-        subdirectory = './Calls'
-        files = [os.path.join(f) for f in os.listdir(subdirectory) if os.path.isfile(os.path.join(subdirectory, f))]
+        subdirectory = find_calls_folder()
+        if subdirectory is None:
+            print("Calls folder not found. Skipping file removal.")
+            return
+        files = [os.path.join(subdirectory, f) for f in os.listdir(subdirectory) if os.path.isfile(os.path.join(subdirectory, f))]
         for file in files:
             if re.match(pattern, file):
                 try:
