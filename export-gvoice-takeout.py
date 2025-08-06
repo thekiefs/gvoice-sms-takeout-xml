@@ -2,6 +2,9 @@ import glob
 import os
 import re
 import time
+import isodate
+import dateutil.parser
+import phonenumbers
 from base64 import b64encode
 from datetime import datetime, timedelta
 from io import open  # adds emoji support
@@ -9,25 +12,21 @@ from pathlib import Path
 from shutil import copyfileobj, move
 from tempfile import NamedTemporaryFile
 from time import strftime
-
-import isodate
-import dateutil.parser
-import phonenumbers
 from bs4 import BeautifulSoup
 
-print("Current working directory:", os.getcwd())
-
-sms_backup_filename = "./gvoice-all.xml"
-sms_backup_path = Path(sms_backup_filename)
-# Clear file if it already exists
-sms_backup_path.open("w").close()
-print("New SMS file will be saved to " + sms_backup_filename)
-
-call_log_filename = "./gvoice-calls.xml"
+# Call Files
+call_log_filename = "./gvoice-takeout-calls.xml"
 call_log_path = Path(call_log_filename)
 # Clear file if it already exists
 call_log_path.open("w").close()
 print("New call log file will be saved to " + call_log_filename)
+
+# SMS Files
+sms_log_filename = "./gvoice-takeout-sms.xml"
+sms_log_path = Path(sms_log_filename)
+# Clear file if it already exists
+sms_log_path.open("w").close()
+print("New SMS file will be saved to " + sms_log_filename)
 
 CALL_TAG_TO_TYPE = {
     'Received': 1,
@@ -39,17 +38,19 @@ CALL_TAG_TO_TYPE = {
     'Recorded': None # does not map
 }
 
-# Constant for allowed extensions
+# Allowed extensions
 VIDEO_EXTENSIONS = {'.3gp', '.mp4'}
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'}
 VCARD_EXTENSION = {'.vcf'}
 ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | VCARD_EXTENSION | VIDEO_EXTENSIONS
 
-
 def main():
     start_time=datetime.now()
     print("Start time: ", start_time.strftime("%H:%M:%S"))
-    remove_problematic_files()
+    print("Current working directory:", os.getcwd())
+    # Get user choices from user_setup()
+    user_confirmation_process, should_delete = user_setup()
+    # Begin execution
     print("Checking directory for *.html files")
     num_sms = 0
     num_img = 0
@@ -90,26 +91,37 @@ def main():
                 if a_tag:
                     own_number = a_tag.get('href').split(':', 1)[-1]  # Extracting number from href
                     break
+            
+            # Gate SMS processing
+            if user_confirmation_process in ('1', '3'):
+                num_sms += len(messages_raw)
 
-            num_sms += len(messages_raw)
+                if len(messages_raw):
+                    if is_group_conversation:
+                        participants_raw = soup.find_all(class_="participants")
+                        write_mms_messages(file, participants_raw, messages_raw, own_number, src_filename_map)
+                    else:
+                        write_sms_messages(file, messages_raw, own_number, src_filename_map)
+            
+            # Gate Call processing
+            if user_confirmation_process in ('2', '3'):
+                call_raw = soup.find(class_="haudio")
+                if call_raw:
+                    num_calls += write_call(call_raw, call_log_filename)
 
-            if len(messages_raw):
-                if is_group_conversation:
-                    participants_raw = soup.find_all(class_="participants")
-                    write_mms_messages(file, participants_raw, messages_raw, own_number, src_filename_map)
-                else:
-                    write_sms_messages(file, messages_raw, own_number, src_filename_map)
+    # Finalize files based on user selection
+    if user_confirmation_process in ('1', '3'):
+        sms_log_file = open(sms_log_filename, "a")
+        sms_log_file.write("</smses>")
+        sms_log_file.close()
+        write_sms_header(sms_log_filename, num_sms)
 
-            call_raw = soup.find(class_="haudio")
-            if call_raw:
-                num_calls += write_call(call_raw, call_log_filename)
+    if user_confirmation_process in ('2', '3'):
+        call_log_file = open(call_log_filename, "a")
+        call_log_file.write("</calls>")
+        call_log_file.close()
+        write_calls_header(call_log_filename, num_calls)
 
-    sms_backup_file = open(sms_backup_filename, "a")
-    sms_backup_file.write("</smses>")
-    sms_backup_file.close()
-    call_log_file = open(call_log_filename, "a")
-    call_log_file.write("</calls>")
-    call_log_file.close()
     end_time=datetime.now()
     elapsed_time = end_time - start_time
     total_seconds = int(elapsed_time.total_seconds())
@@ -125,8 +137,6 @@ def main():
         parts.append(f"{seconds} seconds")
     time_str = ", ".join(parts)
     print(f"Processed {num_calls} calls, {num_sms} messages, {num_img} images, {num_vid} videos, and {num_vcf} contact cards in {time_str}")
-    write_sms_header(sms_backup_filename, num_sms)
-    write_calls_header(call_log_filename, num_calls)
 
 # Function to find the calls folder
 def find_calls_folder(start_dir='.'):
@@ -135,43 +145,66 @@ def find_calls_folder(start_dir='.'):
             return os.path.join(root, 'Calls')
     return None
 
-# Function to remove conversations that won't convert
-def remove_problematic_files():
-    #Get user confirmation before deleting files
-    user_delete_confirmation = input("""\
+# Function for user to define scope (calls and sms), and opt to remove conversations that won't convert
+def user_setup():
+    # Prompt for what to process
+    print("\nChoose what to process:")
+    print("1. SMS only")
+    print("2. Calls only")
+    print("3. Both SMS and Calls")
+    user_confirmation_process = input("Enter 1, 2, or 3: ").strip()
+    while user_confirmation_process not in ('1', '2', '3'):
+        user_confirmation_process = input("Invalid choice. Enter 1, 2, or 3: ").strip()
 
-    Would you like to automatically remove conversations that won't convert?
-    This is conversations without attached phone numbers, ones with shortcode phone numbers, or things like missed calls and voicemails.
-    If you say yes, this will automatically delete those files before converting.
-    (Y/N)? """)
-    if user_delete_confirmation == '' or user_delete_confirmation == 'Y' or user_delete_confirmation == 'y':
+    # Prompt for user confirmation before deleting files
+    user_confirmation_delete = input("""
+Would you like to automatically remove conversations that won't convert?
+This is conversations without attached phone numbers, ones with shortcode phone numbers, or things like missed calls and voicemails.
+If you say yes, this will automatically delete those files before converting.
+(Y/N)? """).strip().lower()
+    
+    # Store boolean for deletion choice
+    should_delete = user_confirmation_delete in ('y', '')
+
+    # Gate file deletion based on should_delete
+    if should_delete:
+        print("Running file/conversation deletion logic...")
+        
         # Find files starting with " -" instead of a phone number
-        files_to_remove = glob.glob("Calls/ -*")
-        # Remove each file
-        for file in files_to_remove:
-            try:
-                os.remove(file)
-                print(f"Removed no number conversation -- {file}")
-            except OSError as e:
-                print(f"Error removing no number conversation -- {file}: {e}")
-        # Find files from a shortcode phone number or similar that don't import properly
-        pattern = r'^[0-9]{1,8}.*$'
-        subdirectory = find_calls_folder()
-        if subdirectory is None:
-            print("Calls folder not found. Skipping file removal.")
-            return
-        files = [os.path.join(subdirectory, f) for f in os.listdir(subdirectory) if os.path.isfile(os.path.join(subdirectory, f))]
-        for file in files:
-            if re.match(pattern, file):
+        calls_path = find_calls_folder()
+        if calls_path:
+            print(f"Found 'Calls' folder at: {calls_path}")
+            
+            # Delete conversations with no number
+            no_num_pattern = os.path.join(calls_path, ' -*')
+            files_to_remove = glob.glob(no_num_pattern)
+            if not files_to_remove:
+                print(f"No files found matching the pattern: {no_num_pattern}")
+            
+            for file in files_to_remove:
                 try:
-                    file = os.path.join(subdirectory, file)
                     os.remove(file)
-                    print(f"Removed shortcode conversation -- {file}")
+                    print(f"Removed no number conversation: {file}")
                 except OSError as e:
-                    print(f"Error removing shortcode conversation -- {file}: {e}")
-        return None
-    else:
-        return None
+                    print(f"Error removing no number conversation: {file}: {e}")
+
+            # Delete conversations with shortcodes, reuse the 'calls_path' variable for consistency
+            pattern = r'^[0-9]{1,8}.*$'
+
+            files_in_dir = [os.path.join(calls_path, f) for f in os.listdir(calls_path) if os.path.isfile(os.path.join(calls_path, f))]
+            
+            for file in files_in_dir:
+                if re.match(pattern, os.path.basename(file)):
+                    try:
+                        os.remove(file)
+                        print(f"Removed shortcode conversation -- {file}")
+                    except OSError as e:
+                        print(f"Error removing shortcode conversation -- {file}: {e}")
+        else:
+            print("Calls folder not found. Skipping file removal.")
+
+    # Return both choices regardless of delete or not
+    return user_confirmation_process, should_delete
 
 # Fixes special characters in the vCards
 def escape_xml(s):
@@ -243,8 +276,7 @@ def write_sms_messages(file, messages_raw, own_number, src_filename_map):
         messages_raw, fallback_number
     )
 
-    # Search similarly named files for a fallback number. This is desperate and expensive, but
-    # hopefully rare.
+    # Search similarly named files for a fallback number. This is desperate and expensive, but hopefully rare.
     if phone_number == 0:
         file_prefix = "-".join(Path(file).stem.split("-")[0:1])
         for fallback_file in Path.cwd().glob(f"**/{file_prefix}*.html"):
@@ -271,7 +303,7 @@ def write_sms_messages(file, messages_raw, own_number, src_filename_map):
 
     sms_values = {"phone": phone_number}
 
-    sms_backup_file = open(sms_backup_filename, "a", encoding="utf8")
+    sms_backup_file = open(sms_log_filename, "a", encoding="utf8")
 
     for message in messages_raw:
         # Check if message has an image, video or vCard in it and treat as MMS if so
@@ -299,13 +331,12 @@ def write_sms_messages(file, messages_raw, own_number, src_filename_map):
     sms_backup_file.close()
 
 def write_mms_messages(file, participants_raw, messages_raw, own_number, src_filename_map):
-    sms_backup_file = open(sms_backup_filename, "a", encoding="utf8")
+    sms_backup_file = open(sms_log_filename, "a", encoding="utf8")
 
     participants = get_participant_phone_numbers(participants_raw)
     participants_text = "~".join(participants)
 
     # Adding own_number to participants if it exists and is not already in the list
-    
     def find_file_path(src, src_filename_map, file, supported_types):
         filename = src_filename_map.get(src)
         if filename is None or filename == "No unused match found":
@@ -522,7 +553,6 @@ def get_mms_sender(message, participants):
         number = participants[0]
     return number
 
-
 def get_first_phone_number(messages, fallback_number):
     # handle group messages
     for author_raw in messages:
@@ -556,7 +586,6 @@ def get_first_phone_number(messages, fallback_number):
         features="html.parser",
     )
     return fallback_number, sender_data
-
 
 def get_participant_phone_numbers(participants_raw):
     participants = []
@@ -600,13 +629,11 @@ def get_time_unix_call(call_raw):
     mstime = time.mktime(time_obj.timetuple()) * 1000 + time_obj.microsecond // 1000
     return int(mstime)
 
-
-
 def write_sms_header(filename, numsms):
     # Prepend header in memory efficient manner since the output file can be huge
     with NamedTemporaryFile(dir=Path.cwd(), delete=False) as backup_temp:
         backup_temp.write(b"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n")
-        backup_temp.write(b"<!--Converted from GV Takeout data -->\n")
+        backup_temp.write(b"\n")
         backup_temp.write(bytes(f'<smses count="{str(numsms)}">\n', encoding="utf8"))
         with open(filename, "rb") as backup_file:
             copyfileobj(backup_file, backup_temp)
@@ -617,7 +644,7 @@ def write_calls_header(filename, numcalls):
     # Prepend header in memory efficient manner since the output file can be huge
     with NamedTemporaryFile(dir=Path.cwd(), delete=False) as backup_temp:
         backup_temp.write(b"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n")
-        backup_temp.write(b"<!--Converted from GV Takeout data -->\n")
+        backup_temp.write(b"\n")
         backup_temp.write(bytes(f'<calls count="{str(numcalls)}">\n', encoding="utf8"))
         with open(filename, "rb") as backup_file:
             copyfileobj(backup_file, backup_temp)
